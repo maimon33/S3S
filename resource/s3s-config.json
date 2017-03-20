@@ -1,0 +1,11 @@
+{
+  "s3s": {
+    "AWS_ACCESS_KEY_ID": "",
+    "AWS_SECRET_ACCESS_KEY": "",
+    "enable_mailer": true,
+    "mailer_username": "user@mail.com",
+    "mailer_password": "password",
+    "mailer_from": "from@mail.com",
+    "mailer_to": "to@mail.com"
+  }
+} 
