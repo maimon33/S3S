@@ -20,17 +20,14 @@ setup(
     version='0.1.1',
     author='Assi Maimon',
     author_email='maimon33@gmail.com',
-    packages=['s3s'],
     license='LICENSE',
     description='A Simple S3 upload tool',
     entry_points={
-        'console_scripts': [
-            's3s = s3s.cli:_s3s'
-        ]
+        'console_scripts': ['s3s = s3s:_s3s']
     },
     install_requires=[
+        'boto3==1.4.4',
         'click==6.6',
-        'requests==2.7.0',
         'click_didyoumean==0.0.3',
     ]
 )
