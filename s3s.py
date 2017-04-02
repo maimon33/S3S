@@ -1,65 +1,77 @@
 import os
+import sys
 import json
-import datetime
+import time
 
 import click
 import boto3
 
-from click_didyoumean import DYMGroup
 
+toolbar_width = 40
 
 CONFIG_PATH = '{0}/s3s-config.json'.format(os.getenv("HOME"))
 with open(CONFIG_PATH) as config_file:
     cfg = json.load(config_file)["s3s"]
 
+SIGNATURE = """This Email was sent by S3S.
+A tool to easily upload and share content via AWS S3
+To learn more visit Github repo https://github.com/maimon33/S3S"""
 
-BUCKET_NAME = os.environ.get('S3S_BUCKET')
 
-
-def abort_if_false(ctx, param, value):
+def _abort_if_false(ctx, param, value):
     if not value:
         ctx.abort()
+
 
 def _format_json(dictionary):
     return json.dumps(dictionary, indent=4, sort_keys=True)
 
 
-def _get_date(addDays=0, dateFormat="%Y, %m, %d"):
-
-    current_date = datetime.datetime.now()
-    if (addDays!=0):
-        experation_date = current_date + datetime.timedelta(days=addDays)
+def _name_your_bucket():
+    import random
+    import string
+    if os.environ.get('S3S_BUCKET'):
+        BUCKET_NAME = os.environ['S3S_BUCKET']
+        return BUCKET_NAME
     else:
-        experation_date = current_date
+        BUCKET_NAME = ''.join(random.choice(string.ascii_lowercase + string.digits) for _ in range(16))
+        return BUCKET_NAME
 
-    return experation_date.strftime(dateFormat)
 
-
-def _send_mail(subject, msg):
+def _send_mail(destination, subject, msg):
     if cfg["enable_mailer"]:
         import smtplib
+
+        msg_with_signature = '{}\n\n{}'.format(msg, SIGNATURE)
 
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
         server.login(cfg["mailer_username"], cfg["mailer_password"])
-
-        server.sendmail(cfg["mailer_from"], cfg["mailer_to"],
-                        'Subject: {}\n\n{}'.format(subject, msg))
+        server.sendmail(cfg["mailer_username"], destination,
+                        'Subject: {}\n\n{}'.format(subject, msg_with_signature))
         server.quit()
     else:
         pass
+
+
+def _isValidEmail(email):
+    import re
+
+    match = re.match('^[_a-z0-9-]+(\.[_a-z0-9-]+)*@[a-z0-9-]+(\.[a-z0-9-]+)*(\.[a-z]{2,4})$', email)
+
+    if match == None:
+        print 'Bad Syntax - Invalid Email Address'
+        sys.exit()
 
 
 class aws_client():
 
 
     def __init__(self):
-        if os.environ.get('S3S_ACCESS_KEY_ID'):
-            ACCESS_KEY = os.environ.get('S3S_ACCESS_KEY_ID')
+        ACCESS_KEY = os.environ.get('S3S_ACCESS_KEY_ID')
         self.ACCESS_KEY = ACCESS_KEY
 
-        if os.environ.get('S3S_SECRET_ACCESS_KEY'):
-            SECRET_KEY = os.environ.get('S3S_SECRET_ACCESS_KEY')
+        SECRET_KEY = os.environ.get('S3S_SECRET_ACCESS_KEY')
         self.SECRET_KEY = SECRET_KEY
 
 
@@ -74,33 +86,50 @@ class aws_client():
                                       aws_secret_access_key=self.SECRET_KEY)
 
 
-    def handle_buckets(self):
+    def handle_buckets(self, BUCKET_NAME):
         buckets = self.aws_api(resource=False).list_buckets()['Buckets']
         for bucket in buckets:
-            if bucket['Name'] == BUCKET_NAME:
+            if BUCKET_NAME in bucket['Name']:
                 break
             else:
                 self.aws_api(resource=False).create_bucket(
                     Bucket=BUCKET_NAME,
                     CreateBucketConfiguration={
                         'LocationConstraint': 'eu-west-1'})
+                break
 
 
-    def upload_to_aws(self, file_to_upload):
-        self.handle_buckets()
+    def upload_to_aws(self, file_to_upload, expire_in, make_public=False):
+        BUCKET_NAME = _name_your_bucket()
+        EXPIRE_CONVERTED_TO_SECONDS = expire_in * 86400
+        files_links = []
+        generate_link = self.aws_api(resource=False).generate_presigned_url(
+            'get_object',
+            Params = {'Bucket': BUCKET_NAME, 'Key': file_to_upload},
+            ExpiresIn = EXPIRE_CONVERTED_TO_SECONDS)
+        self.handle_buckets(BUCKET_NAME)
         bucket = self.aws_api().Bucket(BUCKET_NAME)
         if os.path.isfile(file_to_upload):
             with open(file_to_upload) as content:
+                start = time.time()
                 bucket.put_object(Key=file_to_upload,Body=content)
-            print self.aws_api(resource=False).generate_presigned_url('get_object', Params = {'Bucket': BUCKET_NAME, 'Key': file_to_upload}, ExpiresIn = 100)
+                print '\nFile {} uploaded in {}'.format(file_to_upload, time.time() - start)
+                if make_public:
+                    return '{} - {}'.format(file_to_upload, generate_link)
         elif os.path.isdir(file_to_upload):
             folder_name = os.path.basename(file_to_upload)
             folder_content = os.listdir(file_to_upload)
             for file_to_upload in folder_content:
+                start = time.time()
                 if os.path.isfile(file_to_upload):
                     with open(file_to_upload) as content:
-                        bucket.put_object(Key='{}/{}'.format(folder_name,file_to_upload),Body=content)
-                    print '{}/{}\n{}'.format(folder_name,file_to_upload,self.aws_api(resource=False).generate_presigned_url('get_object', Params = {'Bucket': BUCKET_NAME, 'Key': file_to_upload}, ExpiresIn = 100))
+                        bucket.put_object(
+                            Key='{}/{}'.format(folder_name, file_to_upload),
+                            Body=content)
+                    print 'File {} uploaded in {}'.format(file_to_upload, time.time() - start)
+                    if make_public:
+                        files_links.append('{} - {}'.format(file_to_upload, generate_link))
+            return _format_json(files_links)
 
 
     def list_s3_content(self, dimension):
@@ -110,7 +139,9 @@ class aws_client():
                 print bucket['Name']
         elif dimension.lower() == 'folders':
             for bucket in buckets:
-                result = self.aws_api(resource=False).list_objects(Bucket=bucket['Name'], Delimiter='/')
+                result = self.aws_api(resource=False).list_objects(
+                    Bucket=bucket['Name'],
+                    Delimiter='/')
                 print 'Bucket: {}'.format(bucket['Name'])
                 if result.get('CommonPrefixes'):
                     for o in result.get('CommonPrefixes'):
@@ -131,32 +162,57 @@ class aws_client():
                 bucket_dict['Files'] = files_list
                 files_list = []
             print _format_json(buckets_dict)
+        else:
+            print "No such Object"
 
 
     def purge_s3_bucket(self, bucket_name):
         all_objects = self.aws_api(resource=False).list_objects(Bucket = bucket_name)
-        for file in all_objects['Contents']:
-            self.aws_api(resource=False).delete_object(Bucket=bucket_name, Key=file['Key'])
+        print all_objects
+        if all_objects['Contents']:
+            for file in all_objects['Contents']:
+                self.aws_api(resource=False).delete_object(Bucket=bucket_name, Key=file['Key'])
+        else:
+            print "Bucket already empty"
+        print 'Bucket {} is now empty'.format(bucket_name)
+
+
+class AliasedGroup(click.Group):
+    def __init__(self, *args, **kwargs):
+        self.max_suggestions = kwargs.pop("max_suggestions", 3)
+        self.cutoff = kwargs.pop("cutoff", 0.5)
+        super(AliasedGroup, self).__init__(*args, **kwargs)
+
+    def get_command(self, ctx, cmd_name):
+        rv = click.Group.get_command(self, ctx, cmd_name)
+        if rv is not None:
+            return rv
+        matches = \
+            [x for x in self.list_commands(ctx) if x.startswith(cmd_name)]
+        if not matches:
+            return None
+        elif len(matches) == 1:
+            return click.Group.get_command(self, ctx, matches[0])
+        ctx.fail('Too many matches: {0}'.format(', '.join(sorted(matches))))
 
 
 CLICK_CONTEXT_SETTINGS = dict(
     help_option_names=['-h', '--help'],
     token_normalize_func=lambda param: param.lower())
 
-@click.group(context_settings=CLICK_CONTEXT_SETTINGS, cls=DYMGroup)
+@click.group(context_settings=CLICK_CONTEXT_SETTINGS, cls=AliasedGroup)
 @click.pass_context
 def _s3s(ctx):
     """Client to upload files to S3 easily
     """
-    ctx.obj = {}
-    ctx.obj['client'] = aws_client()
-
-
-@_s3s.command('set')
-@click.option('--S3S_BUCKET', prompt=True)
-def set_s3s(s3s_bucket):
-    """Set your active Bucket"""
-    os.environ["S3S_BUCKET"] = s3s_bucket
+    if os.environ.get('S3S_ACCESS_KEY_ID') and os.environ.get(
+            'S3S_SECRET_ACCESS_KEY'):
+        ctx.obj = {}
+        ctx.obj['client'] = aws_client()
+    else:
+        print 'AWS credentials missing'
+        # Kill process, AWS credentials are missing. no point moving forward!
+        sys.exit()
 
 
 @_s3s.command('list')
@@ -165,24 +221,48 @@ def list(dimension):
     """List S3 content
     """
     client = aws_client()
-    client.list_s3_content(dimension)\
+    client.list_s3_content(dimension)
 
 
 @_s3s.command('upload')
+@click.option('-p',
+              '--make-public',
+              default=False,
+              is_flag=True,
+              help='Do you want to have a public link to the files?')
+@click.option('-e',
+              '--expire-in',
+              default=30,
+              help='The Number of days the link is active')
+@click.option('-s',
+              '--send-to')
 @click.argument('filename')
-def upload(filename):
+def upload(filename, expire_in, send_to, make_public):
     """Upload files to S3
     """
     client = aws_client()
-    client.upload_to_aws(filename)
+    if expire_in < 1:
+        print "The value of expire-in must be greater then 0"
+    else:
+        if send_to:
+            if _isValidEmail(send_to) == 'Bad Syntex':
+                print "Bad Email address"
+            else:
+                _send_mail(send_to,
+                           "Files were Shared with you!",
+                           client.upload_to_aws(filename, expire_in, make_public=True))
+        elif make_public:
+            print client.upload_to_aws(filename, expire_in, make_public=True)
+        else:
+            client.upload_to_aws(filename, expire_in, make_public=False)
 
 
 @_s3s.command('purge')
-@click.option('--yes', is_flag=True, callback=abort_if_false,
+@click.option('--yes', is_flag=True, callback=_abort_if_false,
               expose_value=False,
-              prompt='Are you sure you want to drop the db?')
+              prompt='Are you sure you want empty the bucket?')
 @click.argument('bucket')
-def upload(bucket):
+def purge(bucket):
     """Delete entire content of S3 Bucket
     """
     client = aws_client()
