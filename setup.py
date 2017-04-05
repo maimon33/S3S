@@ -21,6 +21,7 @@ setup(
     author='Assi Maimon',
     author_email='maimon33@gmail.com',
     license='LICENSE',
+    py_modules=['s3s'],
     description='A Simple S3 upload tool',
     entry_points={
         'console_scripts': [
