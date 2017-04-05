@@ -23,11 +23,10 @@ setup(
     license='LICENSE',
     description='A Simple S3 upload tool',
     entry_points={
-        'console_scripts': ['s3s = s3s:_s3s']
+        'console_scripts': ['s3s = _s3s']
     },
     install_requires=[
         'boto3==1.4.4',
         'click==6.6',
-        'click_didyoumean==0.0.3',
     ]
 )
