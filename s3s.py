@@ -7,8 +7,6 @@ import click
 import boto3
 
 
-toolbar_width = 40
-
 CONFIG_PATH = '{0}/s3s-config.json'.format(os.getenv("HOME"))
 with open(CONFIG_PATH) as config_file:
     cfg = json.load(config_file)["s3s"]
@@ -198,7 +196,8 @@ class AliasedGroup(click.Group):
 
 CLICK_CONTEXT_SETTINGS = dict(
     help_option_names=['-h', '--help'],
-    token_normalize_func=lambda param: param.lower())
+    token_normalize_func=lambda param: param.lower(),
+    ignore_unknown_options=True)
 
 @click.group(context_settings=CLICK_CONTEXT_SETTINGS, cls=AliasedGroup)
 @click.pass_context
