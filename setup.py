@@ -22,7 +22,6 @@ setup(
     author_email='maimon33@gmail.com',
     license='LICENSE',
     description='A Simple S3 upload tool',
-    packages=[s3s],
     entry_points={
         'console_scripts': ['s3s = s3s:_s3s']
     },
