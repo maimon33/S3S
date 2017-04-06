@@ -97,7 +97,7 @@ class aws_client():
                 break
 
 
-    def upload_to_aws(self, file_to_upload, expire_in, make_public=False):
+    def upload_to_aws(self, file_to_upload, expire_in, make_public):
         BUCKET_NAME = _name_your_bucket()
         EXPIRE_CONVERTED_TO_SECONDS = expire_in * 86400
         files_links = []
@@ -110,6 +110,11 @@ class aws_client():
         if os.path.isfile(file_to_upload):
             with open(file_to_upload) as content:
                 start = time.time()
+                try:
+                    file_to_upload.encode('ascii')
+                except UnicodeEncodeError:
+                    print 'Skipping {} - Bad filename'.format(file_to_upload.encode('UTF-8'))
+                    break
                 bucket.put_object(Key=file_to_upload,Body=content)
                 print '\nFile {} uploaded in {}'.format(file_to_upload, time.time() - start)
                 if make_public:
@@ -121,12 +126,19 @@ class aws_client():
                 start = time.time()
                 if os.path.isfile(file_to_upload):
                     with open(file_to_upload) as content:
+                        try:
+                            file_to_upload.encode('ascii')
+                        except UnicodeEncodeError:
+                            print 'Skipping {} - Bad filename'.format(file_to_upload.encode('UTF-8'))
+                            continue
                         bucket.put_object(
                             Key='{}/{}'.format(folder_name, file_to_upload),
                             Body=content)
                     print 'File {} uploaded in {}'.format(file_to_upload, time.time() - start)
                     if make_public:
                         files_links.append('{} - {}'.format(file_to_upload, generate_link))
+                elif os.path.isdir(file_to_upload):
+                    print 'Skipping folder {}'.format(file_to_upload)
             return _format_json(files_links)
 
 
@@ -226,7 +238,6 @@ def list(dimension):
 @_s3s.command('upload')
 @click.option('-p',
               '--make-public',
-              default=False,
               is_flag=True,
               help='Do you want to have a public link to the files?')
 @click.option('-e',
@@ -249,11 +260,17 @@ def upload(filename, expire_in, send_to, make_public):
             else:
                 _send_mail(send_to,
                            "Files were Shared with you!",
-                           client.upload_to_aws(filename, expire_in, make_public=True))
+                           client.upload_to_aws(filename,
+                                                expire_in,
+                                                make_public=True))
         elif make_public:
-            print client.upload_to_aws(filename, expire_in, make_public=True)
+            print client.upload_to_aws(filename,
+                                       expire_in,
+                                       make_public=True)
         else:
-            client.upload_to_aws(filename, expire_in, make_public=False)
+            client.upload_to_aws(filename,
+                                 expire_in,
+                                 make_public=False)
 
 
 @_s3s.command('purge')
