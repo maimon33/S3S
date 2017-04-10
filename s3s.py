@@ -52,7 +52,7 @@ def _send_mail(destination, subject, msg):
         pass
 
 
-def _isValidEmail(email):
+def _isvalidemail(email):
     import re
 
     match = re.match('^[_a-z0-9-]+(\.[_a-z0-9-]+)*@[a-z0-9-]+(\.[a-z0-9-]+)*(\.[a-z]{2,4})$', email)
@@ -101,6 +101,7 @@ class aws_client():
         BUCKET_NAME = _name_your_bucket()
         EXPIRE_CONVERTED_TO_SECONDS = expire_in * 86400
         files_links = []
+        upload_summery = []
         generate_link = self.aws_api(resource=False).generate_presigned_url(
             'get_object',
             Params = {'Bucket': BUCKET_NAME, 'Key': file_to_upload},
@@ -114,14 +115,15 @@ class aws_client():
                     file_to_upload.encode('ascii')
                 except UnicodeEncodeError:
                     print 'Skipping {} - Bad filename'.format(file_to_upload.encode('UTF-8'))
-                    break
+                    # break
                 bucket.put_object(Key=file_to_upload,Body=content)
                 print '\nFile {} uploaded in {}'.format(file_to_upload, time.time() - start)
                 if make_public:
                     return '{} - {}'.format(file_to_upload, generate_link)
         elif os.path.isdir(file_to_upload):
-            folder_name = os.path.basename(file_to_upload)
+            folder_name = os.path.basename(os.getcwd())
             folder_content = os.listdir(file_to_upload)
+            print 'Starting Folder Upload\n',
             for file_to_upload in folder_content:
                 start = time.time()
                 if os.path.isfile(file_to_upload):
@@ -129,16 +131,19 @@ class aws_client():
                         try:
                             file_to_upload.encode('ascii')
                         except UnicodeEncodeError:
-                            print 'Skipping {} - Bad filename'.format(file_to_upload.encode('UTF-8'))
+                            upload_summery.append('Skipping {} - Bad filename'.format(file_to_upload.encode('UTF-8')))
                             continue
                         bucket.put_object(
                             Key='{}/{}'.format(folder_name, file_to_upload),
                             Body=content)
-                    print 'File {} uploaded in {}'.format(file_to_upload, time.time() - start)
+                    upload_summery.append('File {} uploaded in {}'.format(file_to_upload, time.time() - start))
+                    print '\b.',
+                    sys.stdout.flush()
                     if make_public:
                         files_links.append('{} - {}'.format(file_to_upload, generate_link))
                 elif os.path.isdir(file_to_upload):
-                    print 'Skipping folder {}'.format(file_to_upload)
+                    upload_summery.append('Skipping folder {}'.format(file_to_upload))
+            print '\nDone!'
             return _format_json(files_links)
 
 
@@ -178,7 +183,6 @@ class aws_client():
 
     def purge_s3_bucket(self, bucket_name):
         all_objects = self.aws_api(resource=False).list_objects(Bucket = bucket_name)
-        print all_objects
         if all_objects['Contents']:
             for file in all_objects['Contents']:
                 self.aws_api(resource=False).delete_object(Bucket=bucket_name, Key=file['Key'])
@@ -233,6 +237,7 @@ def list(dimension):
     """
     client = aws_client()
     client.list_s3_content(dimension)
+    test()
 
 
 @_s3s.command('upload')
@@ -255,7 +260,7 @@ def upload(filename, expire_in, send_to, make_public):
         print "The value of expire-in must be greater then 0"
     else:
         if send_to:
-            if _isValidEmail(send_to) == 'Bad Syntex':
+            if _isvalidemail(send_to) == 'Bad Syntax':
                 print "Bad Email address"
             else:
                 _send_mail(send_to,
