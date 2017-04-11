@@ -249,7 +249,6 @@ def list(dimension):
     """
     client = aws_client()
     client.list_s3_content(dimension)
-    test()
 
 
 @_s3s.command('upload')
@@ -300,4 +299,3 @@ def purge(bucket):
     """
     client = aws_client()
     client.purge_s3_bucket(bucket)
-
