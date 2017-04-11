@@ -3,6 +3,8 @@ import sys
 import json
 import time
 
+from functools import wraps
+
 import click
 import boto3
 
@@ -102,13 +104,10 @@ class aws_client():
         EXPIRE_CONVERTED_TO_SECONDS = expire_in * 86400
         files_links = []
         upload_summery = []
-        generate_link = self.aws_api(resource=False).generate_presigned_url(
-            'get_object',
-            Params = {'Bucket': BUCKET_NAME, 'Key': file_to_upload},
-            ExpiresIn = EXPIRE_CONVERTED_TO_SECONDS)
         self.handle_buckets(BUCKET_NAME)
         bucket = self.aws_api().Bucket(BUCKET_NAME)
         if os.path.isfile(file_to_upload):
+            print 'Starting File Upload'
             with open(file_to_upload) as content:
                 start = time.time()
                 try:
@@ -119,9 +118,14 @@ class aws_client():
                 bucket.put_object(Key=file_to_upload,Body=content)
                 print '\nFile {} uploaded in {}'.format(file_to_upload, time.time() - start)
                 if make_public:
-                    return '{} - {}'.format(file_to_upload, generate_link)
+                    return '{} - {}'.format(
+                        file_to_upload, self.aws_api(resource=False).generate_presigned_url(
+                        'get_object',
+                        Params = {'Bucket': BUCKET_NAME, 'Key': file_to_upload},
+                        ExpiresIn = EXPIRE_CONVERTED_TO_SECONDS))
         elif os.path.isdir(file_to_upload):
-            folder_name = os.path.basename(os.getcwd())
+            os.chdir(os.path.realpath(file_to_upload))
+            folder_name = os.path.basename(os.path.realpath(file_to_upload))
             folder_content = os.listdir(file_to_upload)
             print 'Starting Folder Upload\n',
             for file_to_upload in folder_content:
@@ -140,7 +144,13 @@ class aws_client():
                     print '\b.',
                     sys.stdout.flush()
                     if make_public:
-                        files_links.append('{} - {}'.format(file_to_upload, generate_link))
+                        files_links.append('{} - {}'.format(
+                            file_to_upload, self.aws_api(resource=False).generate_presigned_url(
+                            'get_object',
+                            Params = {'Bucket': BUCKET_NAME,
+                                      'Key': '{}/{}'.format(folder_name,
+                                                            file_to_upload)},
+                            ExpiresIn = EXPIRE_CONVERTED_TO_SECONDS)))
                 elif os.path.isdir(file_to_upload):
                     upload_summery.append('Skipping folder {}'.format(file_to_upload))
             print '\nDone!'
