@@ -3,8 +3,6 @@ import sys
 import json
 import time
 
-from functools import wraps
-
 import click
 import boto3
 
@@ -38,10 +36,11 @@ def _name_your_bucket():
         return BUCKET_NAME
 
 
-def _send_mail(destination, subject, msg):
+def _send_mail(destination, expire_in, subject, msg):
     if cfg["enable_mailer"]:
         import smtplib
 
+        msg = 'Links will expire in {} Days\n\n{}'.format(expire_in, msg)
         msg_with_signature = '{}\n\n{}'.format(msg, SIGNATURE)
 
         server = smtplib.SMTP('smtp.gmail.com', 587)
@@ -114,7 +113,7 @@ class aws_client():
                     file_to_upload.encode('ascii')
                 except UnicodeEncodeError:
                     print 'Skipping {} - Bad filename'.format(file_to_upload.encode('UTF-8'))
-                    # break
+                    sys.exit()
                 bucket.put_object(Key=file_to_upload,Body=content)
                 print '\nFile {} uploaded in {}'.format(file_to_upload, time.time() - start)
                 if make_public:
@@ -135,12 +134,14 @@ class aws_client():
                         try:
                             file_to_upload.encode('ascii')
                         except UnicodeEncodeError:
-                            upload_summery.append('Skipping {} - Bad filename'.format(file_to_upload.encode('UTF-8')))
+                            upload_summery.append('Skipping {} - Bad filename'.format(
+                                file_to_upload.encode('UTF-8')))
                             continue
                         bucket.put_object(
                             Key='{}/{}'.format(folder_name, file_to_upload),
                             Body=content)
-                    upload_summery.append('File {} uploaded in {}'.format(file_to_upload, time.time() - start))
+                    upload_summery.append('File {} uploaded in {}'.format(
+                        file_to_upload, time.time() - start))
                     print '\b.',
                     sys.stdout.flush()
                     if make_public:
@@ -193,12 +194,13 @@ class aws_client():
 
     def purge_s3_bucket(self, bucket_name):
         all_objects = self.aws_api(resource=False).list_objects(Bucket = bucket_name)
-        if all_objects['Contents']:
-            for file in all_objects['Contents']:
-                self.aws_api(resource=False).delete_object(Bucket=bucket_name, Key=file['Key'])
-        else:
-            print "Bucket already empty"
-        print 'Bucket {} is now empty'.format(bucket_name)
+        try:
+            all_objects['Contents']
+        except KeyError:
+            print 'Bucket {} is already empty'.format(bucket_name)
+            sys.exit()
+        for file in all_objects['Contents']:
+            self.aws_api(resource=False).delete_object(Bucket=bucket_name, Key=file['Key'])
 
 
 class AliasedGroup(click.Group):
@@ -273,7 +275,7 @@ def upload(filename, expire_in, send_to, make_public):
             if _isvalidemail(send_to) == 'Bad Syntax':
                 print "Bad Email address"
             else:
-                _send_mail(send_to,
+                _send_mail(send_to, expire_in,
                            "Files were Shared with you!",
                            client.upload_to_aws(filename,
                                                 expire_in,
