@@ -155,6 +155,7 @@ class aws_client():
                 elif os.path.isdir(file_to_upload):
                     upload_summery.append('Skipping folder {}'.format(file_to_upload))
             print '\nDone!'
+            print _format_json(upload_summery)
             return _format_json(files_links)
 
 
