@@ -316,6 +316,7 @@ def upload(filename, expire_in, send_to, make_public):
             print _format_json(client.upload_to_aws(filename,
                                                     expire_in,
                                                     make_public=True))
+
         else:
             client.upload_to_aws(filename,
                                  expire_in,
