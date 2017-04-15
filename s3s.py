@@ -158,6 +158,14 @@ class aws_client():
             return _format_json(files_links)
 
 
+    def fetch_bucket_objects(self, bucket_name):
+        object_list = []
+        my_bucket = self.aws_api().Bucket(bucket_name)
+        for object in my_bucket.objects.all():
+            object_list.append(object.key)
+        return object_list
+
+
     def list_s3_content(self, dimension):
         buckets = self.aws_api(resource=False).list_buckets()['Buckets']
         if dimension.lower() == 'buckets':
@@ -189,7 +197,27 @@ class aws_client():
                 files_list = []
             print _format_json(buckets_dict)
         else:
-            print "No such Object"
+            print "No Such Object Type"
+
+
+    def regenerate_links(self, bucket, object_name, expire_in):
+        EXPIRE_CONVERTED_TO_SECONDS = expire_in * 86400
+        objects = self.fetch_bucket_objects(bucket)
+        files_links = []
+        for file in objects:
+            if file == object_name:
+                print '{} -  {}'.format(file, self.aws_api(resource=False).generate_presigned_url(
+                    'get_object',
+                    Params = {'Bucket': bucket, 'Key': file},
+                    ExpiresIn = EXPIRE_CONVERTED_TO_SECONDS))
+            elif file.startswith('{}/'.format(object_name)):
+                files_links.append('{} - {}'.format(file, self.aws_api(resource=False).generate_presigned_url(
+                    'get_object',
+                    Params = {'Bucket': bucket, 'Key': file},
+                    ExpiresIn = EXPIRE_CONVERTED_TO_SECONDS)))
+            else:
+                return 'No Object Found by that name'
+        return files_links
 
 
     def purge_s3_bucket(self, bucket_name):
@@ -246,6 +274,8 @@ def _s3s(ctx):
 @click.argument('dimension')
 def list(dimension):
     """List S3 content
+    
+    DIMENSIONS is the scope of objects to list (buckets, folders and files)
     """
     client = aws_client()
     client.list_s3_content(dimension)
@@ -261,10 +291,13 @@ def list(dimension):
               default=30,
               help='The Number of days the link is active')
 @click.option('-s',
-              '--send-to')
+              '--send-to',
+              help='email address to send to')
 @click.argument('filename')
 def upload(filename, expire_in, send_to, make_public):
     """Upload files to S3
+    
+    FILENAME is name of Folder or File you wish to upload 
     """
     client = aws_client()
     if expire_in < 1:
@@ -276,17 +309,52 @@ def upload(filename, expire_in, send_to, make_public):
             else:
                 _send_mail(send_to, expire_in,
                            "Files were Shared with you!",
-                           client.upload_to_aws(filename,
-                                                expire_in,
-                                                make_public=True))
+                           _format_json(client.upload_to_aws(filename,
+                                                             expire_in,
+                                                             make_public=True)))
         elif make_public:
-            print client.upload_to_aws(filename,
-                                       expire_in,
-                                       make_public=True)
+            print _format_json(client.upload_to_aws(filename,
+                                                    expire_in,
+                                                    make_public=True))
+
         else:
             client.upload_to_aws(filename,
                                  expire_in,
                                  make_public=False)
+
+
+@_s3s.command('regen-links')
+@click.option('-b',
+              '--bucket-name',
+              required=True,
+              envvar='S3S_BUCKET',
+              help='Name the bucket your working on')
+@click.option('-e',
+              '--expire-in',
+              default=30,
+              help='The Number of days the link is active')
+@click.option('-s',
+              '--send-to',
+              help='email address to send to')
+@click.argument('object-name')
+def regen_links(bucket_name, object_name, expire_in, send_to):
+    """Regenerate public links
+    
+    OBJECT-NAME is the regex string to match with the object in S3 
+    """
+    client = aws_client()
+    if expire_in < 1:
+        print "The value of expire-in must be greater then 0"
+    else:
+        if send_to:
+            if _isvalidemail(send_to) == 'Bad Syntax':
+                print "Bad Email address"
+            else:
+                _send_mail(send_to, expire_in,
+                           "Files were Shared with you!",
+                           _format_json(client.regenerate_links(bucket_name, object_name, expire_in)))
+        else:
+            print _format_json(client.regenerate_links(bucket_name, object_name, expire_in))
 
 
 @_s3s.command('purge')
@@ -295,7 +363,7 @@ def upload(filename, expire_in, send_to, make_public):
               prompt='Are you sure you want empty the bucket?')
 @click.argument('bucket')
 def purge(bucket):
-    """Delete entire content of S3 Bucket
+    """Delete all objects in an S3 Bucket
     """
     client = aws_client()
     client.purge_s3_bucket(bucket)
