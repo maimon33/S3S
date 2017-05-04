@@ -5,6 +5,7 @@ import time
 
 import click
 import boto3
+import zipfile
 
 
 CONFIG_PATH = '{0}/s3s-config.json'.format(os.getenv("HOME"))
@@ -98,6 +99,13 @@ class aws_client():
                 break
 
 
+    def zip_content(self, file_to_upload):
+        zip_filename = zipfile.ZipFile(file_to_upload, 'w')
+        zip_filename.write(file_to_upload, compress_type=zipfile.ZIP_DEFLATED)
+        zip_filename.close()
+        return zip_filename
+
+
     def upload_to_aws(self, file_to_upload, expire_in, make_public):
         BUCKET_NAME = _name_your_bucket()
         EXPIRE_CONVERTED_TO_SECONDS = expire_in * 86400
@@ -125,6 +133,7 @@ class aws_client():
         elif os.path.isdir(file_to_upload):
             os.chdir(os.path.realpath(file_to_upload))
             folder_name = os.path.basename(os.path.realpath(file_to_upload))
+            print os.listdir(os.path.realpath(file_to_upload))
             folder_content = os.listdir(file_to_upload)
             print 'Starting Folder Upload\n',
             for file_to_upload in folder_content:
@@ -229,7 +238,8 @@ class aws_client():
             print 'Bucket {} is already empty'.format(bucket_name)
             sys.exit()
         for file in all_objects['Contents']:
-            self.aws_api(resource=False).delete_object(Bucket=bucket_name, Key=file['Key'])
+            self.aws_api(resource=False).delete_object(Bucket=bucket_name,
+                                                       Key=file['Key'])
 
 
 class AliasedGroup(click.Group):
@@ -294,8 +304,12 @@ def list(dimension):
 @click.option('-s',
               '--send-to',
               help='email address to send to')
+@click.option('-z',
+              '--zip',
+              is_flag=True,
+              help='Archive Folder before upload')
 @click.argument('filename')
-def upload(filename, expire_in, send_to, make_public):
+def upload(filename, expire_in, send_to, make_public, zip):
     """Upload files to S3
     
     FILENAME is name of Folder or File you wish to upload 
@@ -304,6 +318,17 @@ def upload(filename, expire_in, send_to, make_public):
     if expire_in < 1:
         print "The value of expire-in must be greater then 0"
     else:
+        if zip:
+            jungle_zip = zipfile.ZipFile('{}.zip'.format(filename), 'w', zipfile.ZIP_DEFLATED)
+            for root, dirs, files in os.walk(os.path.realpath(filename), topdown=False):
+                for name in files:
+                    zip_object = os.path.join(root, name)
+                    jungle_zip.write(zip_object)
+            jungle_zip.close()
+            filename = '{}.zip'.format(filename)
+        else:
+            pass
+
         if send_to:
             if _isvalidemail(send_to) == 'Bad Syntax':
                 print "Bad Email address"
@@ -314,6 +339,7 @@ def upload(filename, expire_in, send_to, make_public):
                                                              expire_in,
                                                              make_public=True)))
         elif make_public:
+            print "Test"
             print _format_json(client.upload_to_aws(filename,
                                                     expire_in,
                                                     make_public=True))
@@ -353,9 +379,13 @@ def regen_links(bucket_name, object_name, expire_in, send_to):
             else:
                 _send_mail(send_to, expire_in,
                            "Files were Shared with you!",
-                           _format_json(client.regenerate_links(bucket_name, object_name, expire_in)))
+                           _format_json(client.regenerate_links(bucket_name,
+                                                                object_name,
+                                                                expire_in)))
         else:
-            print _format_json(client.regenerate_links(bucket_name, object_name, expire_in))
+            print _format_json(client.regenerate_links(bucket_name,
+                                                       object_name,
+                                                       expire_in))
 
 
 @_s3s.command('purge')
