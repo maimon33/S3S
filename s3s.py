@@ -26,6 +26,16 @@ def _format_json(dictionary):
     return json.dumps(dictionary, indent=4, sort_keys=True)
 
 
+def _compress_content(content):
+    jungle_zip = zipfile.ZipFile('{}.zip'.format(content), 'w', zipfile.ZIP_DEFLATED)
+    for root, dirs, files in os.walk(os.path.realpath(content), topdown=False):
+        for name in files:
+            zip_object = os.path.join(root, name)
+            jungle_zip.write(zip_object)
+    jungle_zip.close()
+    return '{}.zip'.format(content)
+
+
 def _name_your_bucket():
     import random
     import string
@@ -99,13 +109,6 @@ class aws_client():
                 break
 
 
-    def zip_content(self, file_to_upload):
-        zip_filename = zipfile.ZipFile(file_to_upload, 'w')
-        zip_filename.write(file_to_upload, compress_type=zipfile.ZIP_DEFLATED)
-        zip_filename.close()
-        return zip_filename
-
-
     def upload_to_aws(self, file_to_upload, expire_in, make_public):
         BUCKET_NAME = _name_your_bucket()
         EXPIRE_CONVERTED_TO_SECONDS = expire_in * 86400
@@ -130,6 +133,8 @@ class aws_client():
                         'get_object',
                         Params = {'Bucket': BUCKET_NAME, 'Key': file_to_upload},
                         ExpiresIn = EXPIRE_CONVERTED_TO_SECONDS))
+        # TODO
+        # consider changing the folder iteration to os.walk like in zip function
         elif os.path.isdir(file_to_upload):
             os.chdir(os.path.realpath(file_to_upload))
             folder_name = os.path.basename(os.path.realpath(file_to_upload))
@@ -319,13 +324,10 @@ def upload(filename, expire_in, send_to, make_public, zip):
         print "The value of expire-in must be greater then 0"
     else:
         if zip:
-            jungle_zip = zipfile.ZipFile('{}.zip'.format(filename), 'w', zipfile.ZIP_DEFLATED)
-            for root, dirs, files in os.walk(os.path.realpath(filename), topdown=False):
-                for name in files:
-                    zip_object = os.path.join(root, name)
-                    jungle_zip.write(zip_object)
-            jungle_zip.close()
-            filename = '{}.zip'.format(filename)
+            print "Compressing content before upload"
+            filename = _compress_content(filename)
+            # TODO
+            # fix upload path to stay in root folder in AWS
         else:
             pass
 
