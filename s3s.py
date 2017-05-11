@@ -133,29 +133,25 @@ class aws_client():
                         'get_object',
                         Params = {'Bucket': BUCKET_NAME, 'Key': file_to_upload},
                         ExpiresIn = EXPIRE_CONVERTED_TO_SECONDS))
-        # TODO
-        # consider changing the folder iteration to os.walk like in zip function
         elif os.path.isdir(file_to_upload):
-            os.chdir(os.path.realpath(file_to_upload))
-            folder_name = os.path.basename(os.path.realpath(file_to_upload))
-            print os.listdir(os.path.realpath(file_to_upload))
-            folder_content = os.listdir(file_to_upload)
-            print 'Starting Folder Upload\n',
-            for file_to_upload in folder_content:
-                start = time.time()
-                if os.path.isfile(file_to_upload):
-                    with open(file_to_upload) as content:
-                        try:
-                            file_to_upload.encode('ascii')
-                        except UnicodeEncodeError:
-                            upload_summery.append('Skipping {} - Bad filename'.format(
-                                file_to_upload.encode('UTF-8')))
-                            continue
+            print 'Starting Folder Upload...\n',
+            for root_dir, dirs, files in os.walk(os.path.realpath(file_to_upload)):
+                for file in files:
+                    start = time.time()
+                    try:
+                        file.encode('ascii')
+                    except UnicodeEncodeError:
+                        upload_summery.append('Skipping {} - Bad filename'.format(
+                            file.encode('UTF-8')))
+                        continue
+                    s3_object = '{}/{}/{}'.format(file_to_upload, os.path.basename(os.path.realpath(root_dir)), file)
+                    with open('{}/{}'.format(os.path.realpath(root_dir), file)) as content:
                         bucket.put_object(
-                            Key='{}/{}'.format(folder_name, file_to_upload),
+                            Key=s3_object,
                             Body=content)
+                    # print s3_object
                     upload_summery.append('File {} uploaded in {}'.format(
-                        file_to_upload, time.time() - start))
+                        file, time.time() - start))
                     print '\b.',
                     sys.stdout.flush()
                     if make_public:
@@ -163,11 +159,8 @@ class aws_client():
                             file_to_upload, self.aws_api(resource=False).generate_presigned_url(
                             'get_object',
                             Params = {'Bucket': BUCKET_NAME,
-                                      'Key': '{}/{}'.format(folder_name,
-                                                            file_to_upload)},
+                                      'Key': s3_object},
                             ExpiresIn = EXPIRE_CONVERTED_TO_SECONDS)))
-                elif os.path.isdir(file_to_upload):
-                    upload_summery.append('Skipping folder {}'.format(file_to_upload))
             print '\nDone!'
             print _format_json(upload_summery)
             return _format_json(files_links)
