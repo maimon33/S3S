@@ -7,6 +7,8 @@ import click
 import boto3
 import zipfile
 
+from botocore.exceptions import EndpointConnectionError
+
 
 CONFIG_PATH = '{0}/s3s-config.json'.format(os.getenv("HOME"))
 with open(CONFIG_PATH) as config_file:
@@ -26,13 +28,15 @@ def _format_json(dictionary):
     return json.dumps(dictionary, indent=4, sort_keys=True)
 
 
-def _compress_content(content):
-    jungle_zip = zipfile.ZipFile('{}.zip'.format(content), 'w', zipfile.ZIP_DEFLATED)
+def _compress_content(content, password=False):
+    upload_zip = zipfile.ZipFile('{}.zip'.format(content), 'w', zipfile.ZIP_DEFLATED, pwd=password)
+    # if password:
+        # print upload_zip.setpassword('test')
     for root, dirs, files in os.walk(os.path.realpath(content), topdown=False):
-        for name in files:
-            zip_object = os.path.join(root, name)
-            jungle_zip.write(zip_object)
-    jungle_zip.close()
+        for file in files:
+            zip_object = os.path.join(root, file)
+            upload_zip.write(zip_object)
+    upload_zip.close()
     return '{}.zip'.format(content)
 
 
@@ -109,7 +113,7 @@ class aws_client():
                 break
 
 
-    def upload_to_aws(self, file_to_upload, expire_in, make_public):
+    def upload_to_aws(self, file_to_upload, expire_in, make_public, share_folder=False):
         BUCKET_NAME = _name_your_bucket()
         EXPIRE_CONVERTED_TO_SECONDS = expire_in * 86400
         files_links = []
@@ -146,16 +150,27 @@ class aws_client():
                         continue
                     s3_object = '{}/{}/{}'.format(file_to_upload, os.path.basename(os.path.realpath(root_dir)), file)
                     with open('{}/{}'.format(os.path.realpath(root_dir), file)) as content:
-                        bucket.put_object(
-                            Key=s3_object,
-                            Body=content)
+                        try:
+                            bucket.put_object(
+                                Key=s3_object,
+                                Body=content)
+                        except EndpointConnectionError:
+                            print "Unable to connect"
                     # print s3_object
                     upload_summery.append('File {} uploaded in {}'.format(
                         file, time.time() - start))
                     print '\b.',
                     sys.stdout.flush()
                     if make_public:
-                        files_links.append('{} - {}'.format(
+                        if share_folder:
+                            print "Hi"
+                            files_links.append(self.aws_api(resource=False).generate_presigned_url(
+                                'get_object',
+                                Params = {'Bucket': BUCKET_NAME,
+                                          'Key': root_dir},
+                                ExpiresIn = EXPIRE_CONVERTED_TO_SECONDS))
+                        else:
+                            files_links.append('{} - {}'.format(
                             file_to_upload, self.aws_api(resource=False).generate_presigned_url(
                             'get_object',
                             Params = {'Bucket': BUCKET_NAME,
@@ -295,6 +310,10 @@ def list(dimension):
               '--make-public',
               is_flag=True,
               help='Do you want to have a public link to the files?')
+@click.option('-f',
+              '--share-folder',
+              is_flag=True,
+              help='Share on the folder level')
 @click.option('-e',
               '--expire-in',
               default=30,
@@ -306,8 +325,10 @@ def list(dimension):
               '--zip',
               is_flag=True,
               help='Archive Folder before upload')
+@click.option('--password',
+              help='Password to set on the archive')
 @click.argument('filename')
-def upload(filename, expire_in, send_to, make_public, zip):
+def upload(filename, expire_in, send_to, make_public, share_folder, zip, password):
     """Upload files to S3
     
     FILENAME is name of Folder or File you wish to upload 
@@ -316,11 +337,12 @@ def upload(filename, expire_in, send_to, make_public, zip):
     if expire_in < 1:
         print "The value of expire-in must be greater then 0"
     else:
-        if zip:
+        if zip and password:
+            print "Compressing & Encrypting content before upload"
+            filename = _compress_content(filename, password)
+        elif zip:
             print "Compressing content before upload"
             filename = _compress_content(filename)
-            # TODO
-            # fix upload path to stay in root folder in AWS
         else:
             pass
 
@@ -328,16 +350,29 @@ def upload(filename, expire_in, send_to, make_public, zip):
             if _isvalidemail(send_to) == 'Bad Syntax':
                 print "Bad Email address"
             else:
-                _send_mail(send_to, expire_in,
-                           "Files were Shared with you!",
-                           _format_json(client.upload_to_aws(filename,
-                                                             expire_in,
-                                                             make_public=True)))
+                if share_folder:
+                    _send_mail(send_to, expire_in,
+                               "Files were Shared with you!",
+                               _format_json(client.upload_to_aws(filename,
+                                                                 expire_in,
+                                                                 make_public=True,
+                                                                 share_folder=True)))
+                else:
+                    _send_mail(send_to, expire_in,
+                               "Files were Shared with you!",
+                               _format_json(client.upload_to_aws(filename,
+                                                                 expire_in,
+                                                                 make_public=True)))
         elif make_public:
-            print "Test"
-            print _format_json(client.upload_to_aws(filename,
-                                                    expire_in,
-                                                    make_public=True))
+            if share_folder:
+                print _format_json(client.upload_to_aws(filename,
+                                                        expire_in,
+                                                        make_public=True,
+                                                        share_folder=True))
+            else:
+                print _format_json(client.upload_to_aws(filename,
+                                                        expire_in,
+                                                        make_public=True))
 
         else:
             client.upload_to_aws(filename,
