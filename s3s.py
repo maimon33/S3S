@@ -20,10 +20,8 @@ def _abort_if_false(ctx, param, value):
     if not value:
         ctx.abort()
 
-
 def _format_json(dictionary):
     return json.dumps(dictionary, indent=4, sort_keys=True)
-
 
 def _name_your_bucket():
     import random
@@ -34,7 +32,6 @@ def _name_your_bucket():
     else:
         BUCKET_NAME = ''.join(random.choice(string.ascii_lowercase + string.digits) for _ in range(16))
         return BUCKET_NAME
-
 
 def _send_mail(destination, expire_in, subject, msg):
     if cfg["enable_mailer"]:
@@ -52,7 +49,6 @@ def _send_mail(destination, expire_in, subject, msg):
     else:
         pass
 
-
 def _isvalidemail(email):
     import re
 
@@ -62,9 +58,7 @@ def _isvalidemail(email):
         print 'Bad Syntax - Invalid Email Address'
         sys.exit()
 
-
 class aws_client():
-
 
     def __init__(self):
         ACCESS_KEY = os.environ.get('S3S_ACCESS_KEY_ID')
@@ -72,7 +66,6 @@ class aws_client():
 
         SECRET_KEY = os.environ.get('S3S_SECRET_ACCESS_KEY')
         self.SECRET_KEY = SECRET_KEY
-
 
     def aws_api(self, resource=True, aws_service='s3'):
         if resource:
@@ -83,7 +76,6 @@ class aws_client():
             return boto3.client(aws_service,
                                       aws_access_key_id=self.ACCESS_KEY,
                                       aws_secret_access_key=self.SECRET_KEY)
-
 
     def handle_buckets(self, BUCKET_NAME):
         buckets = self.aws_api(resource=False).list_buckets()['Buckets']
@@ -97,10 +89,12 @@ class aws_client():
                         'LocationConstraint': 'eu-west-1'})
                 break
 
-
     def upload_to_aws(self, file_to_upload, expire_in, make_public):
         BUCKET_NAME = _name_your_bucket()
-        EXPIRE_CONVERTED_TO_SECONDS = expire_in * 86400
+        if "h" in expire_in.lower():
+            EXPIRE_CONVERTED_TO_SECONDS = expire_in * 1440
+        else:
+            EXPIRE_CONVERTED_TO_SECONDS = expire_in * 86400
         files_links = []
         upload_summery = []
         self.handle_buckets(BUCKET_NAME)
@@ -158,14 +152,12 @@ class aws_client():
             print _format_json(upload_summery)
             return _format_json(files_links)
 
-
     def fetch_bucket_objects(self, bucket_name):
         object_list = []
         my_bucket = self.aws_api().Bucket(bucket_name)
         for object in my_bucket.objects.all():
             object_list.append(object.key)
         return object_list
-
 
     def list_s3_content(self, dimension):
         buckets = self.aws_api(resource=False).list_buckets()['Buckets']
@@ -200,7 +192,6 @@ class aws_client():
         else:
             print "No Such Object Type"
 
-
     def regenerate_links(self, bucket, object_name, expire_in):
         EXPIRE_CONVERTED_TO_SECONDS = expire_in * 86400
         objects = self.fetch_bucket_objects(bucket)
@@ -220,7 +211,6 @@ class aws_client():
                 return 'No Object Found by that name'
         return files_links
 
-
     def purge_s3_bucket(self, bucket_name):
         all_objects = self.aws_api(resource=False).list_objects(Bucket = bucket_name)
         try:
@@ -230,7 +220,6 @@ class aws_client():
             sys.exit()
         for file in all_objects['Contents']:
             self.aws_api(resource=False).delete_object(Bucket=bucket_name, Key=file['Key'])
-
 
 class AliasedGroup(click.Group):
     def __init__(self, *args, **kwargs):
